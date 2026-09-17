@@ -4,6 +4,7 @@ import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import type { AppEnv, Env } from '../types';
 import { getPublicCommentProtectionSettings } from '../comment-security';
+import { consumeRateLimit, getClientIp, hashRateLimitKey } from '../rate-limit';
 import { buildGravatarUrl, getSiteSettings, md5, normalizeBaseUrl } from '../utils';
 import { PUBLIC_SITE_CSS, PUBLIC_SITE_JS } from './assets';
 import {
@@ -655,7 +656,12 @@ async function renderContentBySlug(c: AppContext): Promise<Response> {
     return c.notFound();
   }
   const common = await getCommonSiteData(c.env, c.req.url);
-  const detail = await getContentDetailBySlug(c.env, common.site, slug);
+  const detail = await getContentDetailBySlug(
+    c.env,
+    common.site,
+    slug,
+    getClientIp(c),
+  );
 
   if (!detail) {
     return c.html(renderNotFoundPage(common, '没有找到对应的文章或页面。'), 404);
@@ -1388,6 +1394,7 @@ async function getContentDetailBySlug(
   env: Env,
   site: SiteMeta,
   slug: string,
+  clientIp: string = '',
 ): Promise<PostDetail | null> {
   const row = await env.DB.prepare(`
     SELECT p.*, u.display_name AS author_display_name, u.username AS author_username,
@@ -1412,13 +1419,21 @@ async function getContentDetailBySlug(
 
   let detail = postCard;
   if (row.post_type === 'post') {
-    await env.DB.prepare(`UPDATE posts SET view_count = view_count + 1 WHERE id = ?`)
-      .bind(row.id)
-      .run();
-    detail = {
-      ...postCard,
-      viewCount: postCard.viewCount + 1,
-    };
+    // 同一 IP 对同一篇文章 30 分钟内只计一次，防止刷新刷量 / 脚本刷爆 D1 写入额度
+    const ipHash = await hashRateLimitKey(clientIp || 'unknown');
+    const alreadyCounted = await consumeRateLimit(env, [
+      { key: `view:post:${row.id}:${ipHash}`, limit: 1, windowSeconds: 1800 }
+    ]);
+
+    if (!alreadyCounted) {
+      await env.DB.prepare(`UPDATE posts SET view_count = view_count + 1 WHERE id = ?`)
+        .bind(row.id)
+        .run();
+      detail = {
+        ...postCard,
+        viewCount: postCard.viewCount + 1,
+      };
+    }
   }
 
   const contentSource = String(row.content || '');

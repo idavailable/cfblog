@@ -19,6 +19,7 @@ import {
   getApprovedStatusDelta,
   moderateCommentSubmission,
 } from '../comment-security';
+import { consumeRateLimit, getClientIp, hashRateLimitKey } from '../rate-limit';
 
 const moments = new Hono<AppEnv>();
 
@@ -756,6 +757,16 @@ moments.post('/:id/like', async (c) => {
       return createWPError('moment_not_found', 'Moment not found', 404);
     }
 
+    // 匿名点赞接口必须限流：单条动态 5 次/5 分钟，单 IP 整体 60 次/5 分钟
+    const ipHash = await hashRateLimitKey(getClientIp(c) || 'unknown');
+    const limited = await consumeRateLimit(c.env, [
+      { key: `like:moment:${id}:${ipHash}`, limit: 5, windowSeconds: 300 },
+      { key: `like:ip:${ipHash}`, limit: 60, windowSeconds: 300 }
+    ]);
+    if (limited) {
+      return createWPError('too_many_requests', 'Too many requests. Please try again later.', 429);
+    }
+
     await c.env.DB.prepare(`
       UPDATE moments
       SET like_count = like_count + 1
@@ -784,6 +795,15 @@ moments.delete('/:id/like', async (c) => {
     const moment = await getMomentOr404(c.env, id);
     if (!moment) {
       return createWPError('moment_not_found', 'Moment not found', 404);
+    }
+
+    const ipHash = await hashRateLimitKey(getClientIp(c) || 'unknown');
+    const limited = await consumeRateLimit(c.env, [
+      { key: `unlike:moment:${id}:${ipHash}`, limit: 5, windowSeconds: 300 },
+      { key: `unlike:ip:${ipHash}`, limit: 60, windowSeconds: 300 }
+    ]);
+    if (limited) {
+      return createWPError('too_many_requests', 'Too many requests. Please try again later.', 429);
     }
 
     await c.env.DB.prepare(`
@@ -833,9 +853,17 @@ moments.get('/:id', optionalAuthMiddleware, async (c) => {
       .first();
 
     if (!user) {
-      await c.env.DB.prepare('UPDATE moments SET view_count = view_count + 1 WHERE id = ?')
-        .bind(id)
-        .run();
+      // 同一 IP 对同一条动态 30 分钟内只计一次浏览，防止刷量
+      const ipHash = await hashRateLimitKey(getClientIp(c) || 'unknown');
+      const alreadyCounted = await consumeRateLimit(c.env, [
+        { key: `view:moment:${id}:${ipHash}`, limit: 1, windowSeconds: 1800 }
+      ]);
+
+      if (!alreadyCounted) {
+        await c.env.DB.prepare('UPDATE moments SET view_count = view_count + 1 WHERE id = ?')
+          .bind(id)
+          .run();
+      }
     }
 
     return c.json(

@@ -16,6 +16,7 @@ import {
   sendWebhook
 } from '../utils';
 import { authMiddleware, optionalAuthMiddleware, requireRole, canEditPost, canDeletePost, canPublishPost } from '../auth';
+import { consumeRateLimit, getClientIp, hashRateLimitKey } from '../rate-limit';
 
 const posts = new Hono<AppEnv>();
 const POST_STATUSES = new Set(['publish', 'draft', 'pending', 'private', 'trash']);
@@ -319,10 +320,18 @@ posts.get('/:id', optionalAuthMiddleware, async (c) => {
     const tagIds = tagResult.results.map((r) => r.tag_id);
 
     // Admin/editor loads should not inflate public view counts.
+    // 同一 IP 对同一篇文章 30 分钟内只计一次，防止刷新刷量 / 脚本刷爆 D1 写入额度。
     if (!user) {
-      await c.env.DB.prepare('UPDATE posts SET view_count = view_count + 1 WHERE id = ?')
-        .bind(id)
-        .run();
+      const ipHash = await hashRateLimitKey(getClientIp(c) || 'unknown');
+      const alreadyCounted = await consumeRateLimit(c.env, [
+        { key: `view:post:${id}:${ipHash}`, limit: 1, windowSeconds: 1800 }
+      ]);
+
+      if (!alreadyCounted) {
+        await c.env.DB.prepare('UPDATE posts SET view_count = view_count + 1 WHERE id = ?')
+          .bind(id)
+          .run();
+      }
     }
 
     return c.json(formatPostResponse(post, baseUrl, categoryIds, tagIds));
