@@ -1,6 +1,6 @@
 name = "cfblog"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-08-14"
 
 # Local development settings
 # Note: AI binding will still connect to remote even in local mode
@@ -10,22 +10,17 @@ compatibility_date = "2024-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "cfblog-db"
-database_id = "22b5f9d0-291f-4f00-b785-d5fbb1075278"
+database_id = "e48b7378-660b-4870-8237-bb029a6eef7d"
 
 # R2 Storage binding
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "cfblog-media"
 
-# KV cache binding
-# Create namespaces first:
-#   npx wrangler kv namespace create CACHE
-#   npx wrangler kv namespace create CACHE --preview
-# Then uncomment and replace the ids below.
-[[kv_namespaces]]
-binding = "CACHE"
-id = "917dde84089e4ac6ab1d5ba49fe272aa"
-# preview_id = "your-preview-kv-namespace-id"
+# KV cache binding (optional — code falls back gracefully without it; not used in current deployment)
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "your-kv-namespace-id"
 
 # Workers AI binding
 # Note: In local dev mode, AI still connects to remote Cloudflare AI
