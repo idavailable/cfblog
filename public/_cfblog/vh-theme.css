@@ -567,6 +567,22 @@ header.vh-header > section > nav > .nav-link > svg {
     opacity: 0;
   }
 }
+/* classic theme: dark header text for the light home banner */
+html[data-site-theme='classic'] .header-main > .auther {
+  color: #2f3e3a;
+}
+html[data-site-theme='classic'] .header-main > .desc {
+  color: #2f3e3a;
+}
+html[data-site-theme='classic'] .header-main > .desc::after {
+  color: #2f3e3a;
+}
+html[data-site-theme='classic'] .header-main > .desc::before {
+  background: -webkit-gradient(linear, left top, right top, color-stop(0%, rgba(47, 62, 58, 0)), color-stop(35%, rgba(47, 62, 58, 0.55)), color-stop(65%, rgba(47, 62, 58, 0.55)), color-stop(100%, rgba(47, 62, 58, 0)));
+}
+html[data-site-theme='classic'] .header-main > .avatar {
+  border-color: rgba(47, 62, 58, 0.35);
+}
 @media screen and (max-width: 1150px) {
   .header-main {
     height: 26rem;
